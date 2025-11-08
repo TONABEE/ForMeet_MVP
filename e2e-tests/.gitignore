@@ -1,0 +1,9 @@
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+.env
+.env.local
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
