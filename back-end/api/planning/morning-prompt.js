@@ -1,4 +1,4 @@
-import { generateMorningPrompt } from '../../lib/openai.js';
+import { generateMorningPrompt } from '../../lib/gemini.js';
 import { getFirestore } from '../../lib/firebase.js';
 import { authenticate, sendSuccess, sendError } from '../../lib/middleware.js';
 

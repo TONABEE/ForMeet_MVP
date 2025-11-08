@@ -1,4 +1,4 @@
-import { generateDailyReport } from '../../lib/openai.js';
+import { generateDailyReport } from '../../lib/gemini.js';
 import { getFirestore } from '../../lib/firebase.js';
 import { authenticate, sendSuccess, sendError } from '../../lib/middleware.js';
 

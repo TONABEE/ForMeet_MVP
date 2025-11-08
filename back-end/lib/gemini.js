@@ -1,46 +1,56 @@
-import OpenAI from 'openai';
+/**
+ * Gemini AI統合モジュール（OpenAI代替 - 無料版）
+ * 
+ * このモジュールはGoogle Gemini APIとの統合を提供します：
+ * - Web Speech API: 音声からテキストへの変換（クライアント側で実装）
+ * - Gemini Pro: タスク抽出、計画提案、日報生成
+ * 
+ * 料金: 月間1500リクエストまで完全無料
+ * APIキー取得: https://ai.google.dev/
+ */
 
-let openaiClient;
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+let genAI;
+let model;
 
 /**
- * OpenAI APIクライアントの初期化
+ * Gemini APIクライアントの初期化
  */
-export function initializeOpenAI() {
-  if (openaiClient) {
-    return openaiClient;
+export function initializeGemini() {
+  if (genAI) {
+    return genAI;
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set');
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is not set');
   }
 
-  openaiClient = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
-  console.log('✅ OpenAI initialized');
-  return openaiClient;
+  console.log('✅ Gemini initialized');
+  return genAI;
 }
 
 /**
- * 音声をテキストに変換（Whisper API）
+ * 音声ファイルをテキストに変換
+ * 
+ * 注意: Gemini APIは音声認識機能を提供していません。
+ * 代わりに、クライアント側でWeb Speech APIを使用してください。
+ * 
+ * このファイルは互換性のために残されていますが、
+ * 実際の音声認識はモバイルアプリ側で実装されます。
+ * 
+ * @param {Buffer} audioBuffer - 音声データのバッファ（未使用）
+ * @returns {Promise<string>} エラーメッセージ
  */
-export async function transcribeAudio(audioBuffer, options = {}) {
-  const client = initializeOpenAI();
-
-  try {
-    const response = await client.audio.transcriptions.create({
-      file: audioBuffer,
-      model: 'whisper-1',
-      language: 'ja',
-      ...options,
-    });
-
-    return response.text;
-  } catch (error) {
-    console.error('Transcription error:', error);
-    throw error;
-  }
+export async function transcribeAudio(audioBuffer) {
+  throw new Error(
+    '音声認識はクライアント側で実装してください。' +
+    'Web Speech API (webkitSpeechRecognition) を使用することを推奨します。' +
+    '詳細: https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API'
+  );
 }
 
 /**
@@ -50,6 +60,8 @@ export async function transcribeAudio(audioBuffer, options = {}) {
  * @returns {Promise<Object>} 抽出されたタスク情報
  */
 export async function extractTaskFromVoice(transcribedText, userTone = 'friendly') {
+  initializeGemini();
+
   try {
     const prompt = `
 あなたは優秀なタスク管理アシスタントです。
@@ -103,6 +115,8 @@ export async function extractTaskFromVoice(transcribedText, userTone = 'friendly
  * @returns {Promise<Object>} 提案内容
  */
 export async function generateMorningPrompt(unscheduledTasks, userContext = {}) {
+  initializeGemini();
+
   try {
     const tasksText = unscheduledTasks
       .map((task, index) => `${index + 1}. ${task.title} (予定時間: ${task.estimatedDuration}分)`)
@@ -157,39 +171,78 @@ ${userContext.todaySchedule || '特になし'}
 }
 
 /**
- * 日報を自動生成
+ * 日報を自動生成（Gemini Pro）
+ * @param {Array} completedTasks - 完了したタスク一覧
+ * @param {Array} pendingTasks - 未完了のタスク一覧
+ * @param {Object} userContext - ユーザーコンテキスト
+ * @returns {Promise<string>} 生成された日報テキスト
  */
-export async function generateDailyReport(completedTasks, pendingTasks, userContext) {
-  const client = initializeOpenAI();
-
-  const systemPrompt = `あなたはFormeetのAI秘書です。今日の作業実績から日報を生成してください。
-
-口調: ${userContext.aiTone === 'polite' ? '丁寧（です・ます調）' : userContext.aiTone === 'casual' ? 'カジュアル' : '簡潔'}
-
-出力形式:
-- 【本日の成果】セクション
-- 【課題・遅延】セクション
-- 【明日の予定】セクション
-- 短く、要点を押さえた文章で`;
+export async function generateDailyReport(completedTasks, pendingTasks, userContext = {}) {
+  initializeGemini();
 
   try {
-    const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: `完了タスク:\n${JSON.stringify(completedTasks, null, 2)}\n\n未完了タスク:\n${JSON.stringify(pendingTasks, null, 2)}`,
-        },
-      ],
-      temperature: 0.4,
-    });
+    const completedText = completedTasks
+      .map((task) => `- ${task.title} (実際: ${task.actualDuration}分)`)
+      .join('\n');
 
-    return response.choices[0].message.content;
+    const pendingText = pendingTasks
+      .map((task) => `- ${task.title}`)
+      .join('\n');
+
+    const toneMap = {
+      polite: '丁寧（です・ます調）',
+      casual: 'カジュアル（だ・である調）',
+      friendly: '親しみやすく（です・ます調だが柔らかく）',
+    };
+
+    const tone = toneMap[userContext.aiTone] || '親しみやすく';
+
+    const prompt = `
+あなたは優秀な日報作成アシスタントです。
+今日の振り返りレポートを作成してください。
+
+【完了したタスク】
+${completedText || 'なし'}
+
+【未完了のタスク】
+${pendingText || 'なし'}
+
+【ユーザーの状態】
+- 集中度の平均: ${userContext.avgFocus || 'データなし'}
+- メンタルヘルススコア: ${userContext.mentalHealthScore || 'データなし'}
+
+以下の形式でレポートを作成してください：
+
+【本日の成果】
+（完了したタスクをポジティブに振り返る）
+
+【課題・遅延】
+（未完了タスクについて、原因と対策を提案）
+
+【明日の予定】
+（明日やるべきことを簡潔に）
+
+【一言】
+（励ましのメッセージ）
+
+口調: ${tone}
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const report = response.text();
+    
+    return report;
   } catch (error) {
-    console.error('Daily report generation error:', error);
-    throw error;
+    console.error('Gemini Pro error:', error);
+    throw new Error('日報の生成に失敗しました: ' + error.message);
   }
 }
 
-export default { initializeOpenAI, transcribeAudio, extractTaskFromVoice, generateMorningPrompt, generateDailyReport };
+export default { 
+  initializeGemini, 
+  transcribeAudio, 
+  extractTaskFromVoice, 
+  generateMorningPrompt, 
+  generateDailyReport 
+};

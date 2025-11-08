@@ -1,4 +1,4 @@
-import { transcribeAudio, extractTaskFromVoice } from '../../lib/openai.js';
+import { transcribeAudio, extractTaskFromVoice } from '../../lib/gemini.js';
 import { getFirestore } from '../../lib/firebase.js';
 import { authenticate, sendSuccess, sendError } from '../../lib/middleware.js';
 
